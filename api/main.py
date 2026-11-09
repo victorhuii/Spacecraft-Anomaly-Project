@@ -12,6 +12,8 @@ from pathlib import Path
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 
+from functools import lru_cache
+
 app = FastAPI(
     title="MissionGuard API",
     description="NASA Spacecraft Anomaly Detection Platform",
@@ -77,32 +79,18 @@ def get_evaluation(
 
 
 
-@app.get("/inference/{channel}")
-def get_inference(
-    channel: str,
-    horizon: int = 1,
-    use_commands: bool = False,
-    start: int = 0,
-    limit: int = 100
-):
-    if (
-        not channel.replace("-", "").isalnum()
-        or horizon < 1
-        or start < 0
-        or not 1 <= limit <= 500
-    ):
-        raise HTTPException(400, "Invalid inference parameters")
+@lru_cache(maxsize=8)
+def cached_inference(channel, horizon, use_commands):
+    """Compute and cache anomaly scores for a saved model."""
 
     suffix = "_cmd" if use_commands else ""
-
-    checkpoint_path = (
-        root / "models" / f"{channel}_h{horizon}{suffix}.pt"
-    )
+    model_name = f"{channel}_h{horizon}{suffix}"
+    checkpoint_path = root / "models" / f"{model_name}.pt"
 
     if not checkpoint_path.exists():
         raise HTTPException(404, "Model not found")
 
-    # Load trained model
+    # Load trained PyTorch model
     checkpoint = torch.load(
         checkpoint_path,
         map_location="cpu",
@@ -120,11 +108,11 @@ def get_inference(
     device = torch.device(
         "mps" if torch.backends.mps.is_available() else "cpu"
     )
-
     model = model.to(device)
+
     window_size = checkpoint["window_size"]
 
-    # Load historical NASA telemetry
+    # Load historical telemetry
     train_df = load_channel(root, channel, "train")
     test_df = load_channel(root, channel, "test")
 
@@ -138,7 +126,7 @@ def get_inference(
         val_data = val_df["value"].to_numpy(dtype="float32")
         test_data = test_df["value"].to_numpy(dtype="float32")
 
-    # Calculate prediction errors
+    # Calculate anomaly scores once
     val_scores = forecast_errors(
         model, val_data, window_size,
         horizon, device, use_commands
@@ -152,30 +140,61 @@ def get_inference(
     threshold = float(np.quantile(val_scores, 0.99))
     offset = window_size + horizon - 1
 
-    if start >= len(test_scores):
+    return {
+        "model": model_name,
+        "threshold": threshold,
+        "timesteps": test_df["timestep"].to_numpy()[offset:],
+        "values": test_df["value"].to_numpy()[offset:],
+        "scores": test_scores
+    }
+
+
+@app.get("/inference/{channel}")
+def get_inference(
+    channel: str,
+    horizon: int = 1,
+    use_commands: bool = False,
+    start: int = 0,
+    limit: int = 100
+):
+    if (
+        not channel.replace("-", "").isalnum()
+        or horizon < 1
+        or start < 0
+        or not 1 <= limit <= 500
+    ):
+        raise HTTPException(400, "Invalid inference parameters")
+
+    # Reuse cached predictions when available
+    cached = cached_inference(
+        channel, horizon, use_commands
+    )
+
+    total = len(cached["scores"])
+
+    if start >= total:
         raise HTTPException(400, "Start exceeds available data")
 
-    end = min(start + limit, len(test_scores))
+    end = min(start + limit, total)
 
-    # Return telemetry and anomaly predictions
     points = []
 
     for i in range(start, end):
-        row = test_df.iloc[i + offset]
-        score = float(test_scores[i])
+        score = float(cached["scores"][i])
 
         points.append({
-            "timestep": int(row["timestep"]),
-            "value": float(row["value"]),
+            "timestep": int(cached["timesteps"][i]),
+            "value": float(cached["values"][i]),
             "anomaly_score": score,
-            "is_anomaly": score > threshold
+            "is_anomaly": score > cached["threshold"]
         })
 
     return {
         "channel": channel,
-        "model": checkpoint_path.stem,
+        "model": cached["model"],
         "source": "Historical NASA test telemetry",
-        "threshold": threshold,
-        "total_predictions": len(test_scores),
+        "threshold": cached["threshold"],
+        "total_predictions": total,
         "points": points
     }
+
