@@ -13,7 +13,8 @@ from src.detection import (
     forecast_errors,
     detect_anomalies,
     calculate_metrics, 
-    event_metrics
+    event_metrics,
+    multi_scale_detect
 )
 
 
@@ -148,6 +149,26 @@ def main():
     baseline_metrics = calculate_metrics(
         y_true, baseline_predictions
     )
+    
+    
+    # Multi-scale anomaly detector
+    multi_flags, multi_thresholds = multi_scale_detect(
+        val_values,
+        test_values,
+        windows=(15, 30, 60),
+        quantile=0.01,
+        required_votes=2
+    )
+
+    # Align to the same evaluated timesteps as the LSTM
+    multi_predictions = multi_flags[offset:]
+
+    multi_metrics = calculate_metrics(
+        y_true, multi_predictions
+    )
+
+    print("\nMulti-scale thresholds:", multi_thresholds)
+
 
     # Compare models
     model_name = (
@@ -156,10 +177,13 @@ def main():
         else "Univariate LSTM"
     )
 
+    
     results = pd.DataFrame([
         {"Model": "Rolling Std", **baseline_metrics},
+        {"Model": "Multi-Scale", **multi_metrics},
         {"Model": model_name, **lstm_metrics}
     ])
+
 
     # Save results
     report_path = (
@@ -218,10 +242,16 @@ def main():
             "Model": "Rolling Std",
             **event_metrics(y_true, baseline_predictions)
         },
+        
+        {
+                    "Model": "Multi-Scale",
+                    **event_metrics(y_true, multi_predictions)
+        },
+        
         {
             "Model": model_name,
             **event_metrics(y_true, predictions)
-        }
+        },
     ])
 
     event_path = report_path.with_name(

@@ -5,12 +5,15 @@ import torch
 
 from src.models import LSTMForecaster
 
+
 from src.detection import (
     calculate_metrics,
     detect_anomalies,
     forecast_errors,
-    event_metrics
+    event_metrics,
+    multi_scale_detect
 )
+
 
 
 
@@ -84,3 +87,32 @@ def test_event_metrics():
     assert result["Event Recall"] == 0.5
     assert result["False Alert Runs"] == 2
     assert result["Median Detection Delay"] == 1
+
+
+
+def test_multi_scale_detection():
+    # Normal oscillating telemetry
+    normal = np.tile([0., 1., 2., 3.], 30)
+
+    # Insert a 30-step flatline
+    test = np.concatenate([
+        np.tile([0., 1., 2., 3.], 10),
+        np.zeros(30),
+        np.tile([0., 1., 2., 3.], 10)
+    ])
+
+    predictions, thresholds = multi_scale_detect(
+        normal,
+        test,
+        windows=(5, 10, 15)
+    )
+
+    assert predictions.shape == test.shape
+    assert predictions.dtype == bool
+    assert len(thresholds) == 3
+
+    # Normal oscillations should not trigger
+    assert not predictions[20]
+
+    # Sustained flatline should trigger
+    assert predictions[60]

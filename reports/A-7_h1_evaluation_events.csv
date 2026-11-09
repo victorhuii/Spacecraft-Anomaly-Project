@@ -1,0 +1,4 @@
+Model,Labeled Events,Detected Events,Event Recall,False Alert Runs,Median Detection Delay
+Rolling Std,1,1,1.0,4,66.0
+Multi-Scale,1,1,1.0,4,66.0
+Univariate LSTM,1,1,1.0,279,2.0

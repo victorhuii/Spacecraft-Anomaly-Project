@@ -1,7 +1,7 @@
 
 import numpy as np
 import torch
-
+import pandas as pd
 from src.data import make_windows, make_multivariate_windows
 
 
@@ -124,3 +124,58 @@ def event_metrics(y_true, y_pred):
             float(np.median(delays)) if delays else None
         )
     }
+
+
+def multi_scale_detect(
+    normal_values,
+    test_values,
+    windows=(15, 30, 60),
+    quantile=0.01,
+    required_votes=2
+):
+    """Detect low-variation anomalies across multiple time scales."""
+
+    if not 0 < quantile < 1:
+        raise ValueError("quantile must be between 0 and 1")
+
+    if not 1 <= required_votes <= len(windows):
+        raise ValueError("Invalid number of required votes")
+
+    normal = pd.Series(
+        np.asarray(normal_values, dtype=float)
+    )
+
+    test = pd.Series(
+        np.asarray(test_values, dtype=float)
+    )
+
+    votes = np.zeros(len(test), dtype=int)
+    thresholds = {}
+
+    for window in windows:
+        if window < 2 or window > len(normal):
+            raise ValueError("Invalid rolling window")
+
+        # Calibrate on normal validation data only
+        normal_std = normal.rolling(
+            window, min_periods=window
+        ).std()
+
+        threshold = float(
+            normal_std.dropna().quantile(quantile)
+        )
+
+        thresholds[window] = threshold
+
+        # Evaluate unseen telemetry
+        test_std = test.rolling(
+            window, min_periods=window
+        ).std()
+
+        flags = (test_std < threshold).fillna(False)
+
+        votes += flags.to_numpy(dtype=int)
+
+    predictions = votes >= required_votes
+
+    return predictions, thresholds
