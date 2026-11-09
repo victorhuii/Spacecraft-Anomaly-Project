@@ -70,3 +70,57 @@ def calculate_metrics(y_true, y_pred):
         "FN": int(fn),
         "TN": int(tn)
     }
+
+
+
+def event_metrics(y_true, y_pred):
+    """Evaluate detection of contiguous anomaly events."""
+
+    y_true = np.asarray(y_true, dtype=bool)
+    y_pred = np.asarray(y_pred, dtype=bool)
+
+    if y_true.ndim != 1 or y_true.shape != y_pred.shape:
+        raise ValueError("Labels and predictions must be aligned 1D arrays")
+
+    # Find the start and end of contiguous True regions
+    def find_events(values):
+        edges = np.diff(
+            np.r_[False, values, False].astype(int)
+        )
+        starts = np.flatnonzero(edges == 1)
+        ends = np.flatnonzero(edges == -1)
+
+        return list(zip(starts, ends))
+
+    true_events = find_events(y_true)
+    predicted_events = find_events(y_pred)
+
+    # Count detected events and their detection delays
+    delays = []
+
+    for start, end in true_events:
+        hits = np.flatnonzero(y_pred[start:end])
+
+        if len(hits) > 0:
+            delays.append(int(hits[0]))
+
+    # Predicted alert runs outside all labeled events
+    false_alerts = sum(
+        not y_true[start:end].any()
+        for start, end in predicted_events
+    )
+
+    event_recall = (
+        len(delays) / len(true_events)
+        if true_events else 0
+    )
+
+    return {
+        "Labeled Events": len(true_events),
+        "Detected Events": len(delays),
+        "Event Recall": event_recall,
+        "False Alert Runs": false_alerts,
+        "Median Detection Delay": (
+            float(np.median(delays)) if delays else None
+        )
+    }

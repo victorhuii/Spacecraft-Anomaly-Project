@@ -12,7 +12,8 @@ from src.models import LSTMForecaster
 from src.detection import (
     forecast_errors,
     detect_anomalies,
-    calculate_metrics
+    calculate_metrics, 
+    event_metrics
 )
 
 
@@ -177,6 +178,29 @@ def main():
     print("\nModel comparison:")
     print(results.round(4).to_string(index=False))
     print(f"\nReport saved: {report_path}")
+
+    
+    # Event-level evaluation
+    event_results = pd.DataFrame([
+        {
+            "Model": "Rolling Std",
+            **event_metrics(y_true, baseline_predictions)
+        },
+        {
+            "Model": model_name,
+            **event_metrics(y_true, predictions)
+        }
+    ])
+
+    event_path = report_path.with_name(
+        report_path.stem + "_events.csv"
+    )
+
+    event_results.to_csv(event_path, index=False)
+
+    print("\nEvent-level comparison:")
+    print(event_results.round(4).to_string(index=False))
+
 
 
 if __name__ == "__main__":

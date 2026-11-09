@@ -8,7 +8,8 @@ from src.models import LSTMForecaster
 from src.detection import (
     calculate_metrics,
     detect_anomalies,
-    forecast_errors
+    forecast_errors,
+    event_metrics
 )
 
 
@@ -62,3 +63,24 @@ def test_multivariate_forecasting():
 
     assert scores.shape == (8,)
     assert np.isfinite(scores).all()
+
+
+
+def test_event_metrics():
+    y_true = np.array([
+        False, True, True, False, False,
+        True, True, False, False
+    ])
+
+    y_pred = np.array([
+        True, False, True, False, True,
+        False, False, False, False
+    ])
+
+    result = event_metrics(y_true, y_pred)
+
+    assert result["Labeled Events"] == 2
+    assert result["Detected Events"] == 1
+    assert result["Event Recall"] == 0.5
+    assert result["False Alert Runs"] == 2
+    assert result["Median Detection Delay"] == 1
