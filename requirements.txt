@@ -22,3 +22,10 @@ huggingface_hub
 
 # Testing
 pytest
+
+# Backend API
+fastapi
+uvicorn
+
+# API Testing
+httpx
