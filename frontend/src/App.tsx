@@ -10,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import AnalyticsPanel from "./AnalyticsPanel";
 
 type TelemetryPoint = {
   timestep: number;
@@ -43,6 +44,7 @@ export default function App() {
   const [playing, setPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [cursorIndex, setCursorIndex] = useState(PAGE_SIZE - 1);
+  const [page, setPage] = useState<"monitor" | "analytics">("monitor");
 
   // Load available checkpoints
   useEffect(() => {
@@ -170,8 +172,22 @@ export default function App() {
         </div>
 
         <div className="side-label">WORKSPACE</div>
-        <div className="nav-item nav-active">◉ &nbsp; Telemetry Monitor</div>
-        <div className="nav-item">◇ &nbsp; Anomaly Detection</div>
+
+        <button
+          type="button"
+          className={`nav-item nav-button ${page === "monitor" ? "nav-active" : ""}`}
+          onClick={() => setPage("monitor")}
+        >
+          ◉ &nbsp; Telemetry Monitor
+        </button>
+
+        <button
+          type="button"
+          className={`nav-item nav-button ${page === "analytics" ? "nav-active" : ""}`}
+          onClick={() => setPage("analytics")}
+        >
+          ◇ &nbsp; Anomaly Detection
+        </button>
 
         <div className="side-label">DATA SOURCE</div>
         <div className="side-detail">NASA JPL Telemanom</div>
@@ -190,7 +206,9 @@ export default function App() {
         <header className="topbar">
           <div>
             <div className="eyebrow">MISSION OPERATIONS / MONITORING</div>
-            <h1>Telemetry Overview</h1>
+            <h1>
+              {page === "monitor" ? "Telemetry Overview" : "Anomaly Detection"}
+            </h1>
             <p className="subtext">
               Model predictions and anomaly analysis using NASA mission data
             </p>
@@ -201,340 +219,367 @@ export default function App() {
           </div>
         </header>
 
-        <section className="control-panel">
-          <div className="control-group">
-            <label htmlFor="channel">Spacecraft channel</label>
-            <select
-              id="channel"
-              value={channel}
-              onChange={(e) => changeChannel(e.target.value)}
-            >
-              {channels.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="control-group">
-            <label htmlFor="model">Detection model</label>
-            <select
-              id="model"
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-            >
-              {availableModels.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="control-note">
-            <span className="dot amber" />
-            Historical replay, not live spacecraft data
-          </div>
-        </section>
-
-        <section className="kpi-grid">
-          <div className="kpi">
-            <div className="kpi-label">VISIBLE READINGS</div>
-
-            <div className="kpi-value">
-              {Math.min(cursorIndex + 1, points.length)}
-            </div>
-
-            <div className="kpi-foot">Current telemetry window</div>
-          </div>
-          <div className="kpi">
-            <div className="kpi-label">FLAGGED TIMESTEPS</div>
-            <div className="kpi-value alert-color">{alerts.length}</div>
-            <div className="kpi-foot">Model-generated alerts</div>
-          </div>
-          <div className="kpi">
-            <div className="kpi-label">DETECTION THRESHOLD</div>
-            <div className="kpi-value">
-              {data ? data.threshold.toFixed(4) : "—"}
-            </div>
-            <div className="kpi-foot">Calibrated on normal validation data</div>
-          </div>
-          <div className="kpi">
-            <div className="kpi-label">TOTAL PREDICTIONS</div>
-            <div className="kpi-value">
-              {data ? data.total_predictions.toLocaleString() : "—"}
-            </div>
-            <div className="kpi-foot">Available historical scores</div>
-          </div>
-        </section>
-
-        {error && (
-          <div className="error">{error}. Check your FastAPI server.</div>
-        )}
-        {loading && (
-          <div className="empty-state">
-            Loading spacecraft telemetry and predictions...
-          </div>
+        {page === "analytics" && (
+          <AnalyticsPanel
+            models={models}
+            selectedModel={selectedModel}
+            onSelectModel={(model) => {
+              setSelectedModel(model);
+              setStart(model.startsWith("A-2_") ? 4300 : 0);
+            }}
+          />
         )}
 
-        {data && (
+        {page === "monitor" && (
           <>
-            <section className="playback-panel">
-              <div className="playback-header">
-                <div>
-                  <h2>Telemetry Replay</h2>
-                  <p className="subtext">
-                    Simulated playback of historical spacecraft readings
-                  </p>
-                </div>
-
-                <span className="playback-position">
-                  Timestep {currentPoint?.timestep ?? "—"}
-                </span>
-              </div>
-
-              <div className="playback-actions">
-                <button
-                  onClick={() => {
-                    if (playing) {
-                      setPlaying(false);
-                    } else {
-                      if (cursorIndex >= points.length - 1) {
-                        setCursorIndex(0);
-                      }
-                      setPlaying(true);
-                    }
-                  }}
-                >
-                  {playing ? "⏸ Pause" : "▶ Play"}
-                </button>
-
-                <button
-                  onClick={() => {
-                    setPlaying(false);
-                    setCursorIndex(0);
-                  }}
-                >
-                  ↺ Restart
-                </button>
-
-                <label htmlFor="playback-speed">Speed</label>
+            <section className="control-panel">
+              <div className="control-group">
+                <label htmlFor="channel">Spacecraft channel</label>
                 <select
-                  id="playback-speed"
-                  value={playbackSpeed}
-                  onChange={(e) => setPlaybackSpeed(Number(e.target.value))}
+                  id="channel"
+                  value={channel}
+                  onChange={(e) => changeChannel(e.target.value)}
                 >
-                  <option value={1}>1×</option>
-                  <option value={2}>2×</option>
-                  <option value={4}>4×</option>
+                  {channels.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
-              <input
-                className="playback-slider"
-                type="range"
-                min={0}
-                max={Math.max(0, points.length - 1)}
-                value={Math.min(cursorIndex, Math.max(0, points.length - 1))}
-                onChange={(e) => {
-                  setPlaying(false);
-                  setCursorIndex(Number(e.target.value));
-                }}
-                aria-label="Telemetry replay position"
-              />
-
-              <div className="playback-progress">
-                <span>
-                  {Math.min(cursorIndex + 1, points.length)} readings replayed
-                </span>
-                <span>{points.length} total readings</span>
-              </div>
-            </section>
-
-            <section className="chart-panel">
-              <div className="panel-heading">
-                <div>
-                  <h2>Spacecraft Telemetry</h2>
-                  <p>Normalized sensor measurements over time</p>
-                </div>
-                <span className="chart-legend">
-                  ● Telemetry &nbsp;{" "}
-                  <span className="alert-color">● Alerts</span>
-                </span>
-              </div>
-
-              <div className="chart-wrap">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart
-                    data={chartPoints}
-                    margin={{ top: 12, right: 20, left: 0, bottom: 5 }}
-                  >
-                    <CartesianGrid
-                      stroke="#263143"
-                      strokeDasharray="3 5"
-                      vertical={false}
-                    />
-                    <XAxis
-                      dataKey="timestep"
-                      type="number"
-                      domain={["dataMin", "dataMax"]}
-                      stroke="#8291a6"
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      domain={[-1.1, 1.1]}
-                      stroke="#8291a6"
-                      tickLine={false}
-                      axisLine={false}
-                      width={45}
-                    />
-                    <Tooltip contentStyle={tooltipStyle} />
-                    <Line
-                      type="linear"
-                      dataKey="replayValue"
-                      stroke="#5ca8f9"
-                      strokeWidth={2}
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                    {alerts.map((point) => (
-                      <ReferenceDot
-                        key={point.timestep}
-                        x={point.timestep}
-                        y={point.value}
-                        r={3}
-                        fill="#ff7388"
-                        stroke="none"
-                      />
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </section>
-
-            <section className="chart-panel">
-              <div className="panel-heading">
-                <div>
-                  <h2>Anomaly Detection Scores</h2>
-                  <p>
-                    Forecast error compared against the calibrated threshold
-                  </p>
-                </div>
-                <span className="chart-legend">● Prediction error</span>
-              </div>
-
-              <div className="chart-wrap">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart
-                    data={chartPoints}
-                    margin={{ top: 12, right: 20, left: 0, bottom: 5 }}
-                  >
-                    <CartesianGrid
-                      stroke="#263143"
-                      strokeDasharray="3 5"
-                      vertical={false}
-                    />
-                    <XAxis
-                      dataKey="timestep"
-                      type="number"
-                      domain={["dataMin", "dataMax"]}
-                      stroke="#8291a6"
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      stroke="#8291a6"
-                      tickLine={false}
-                      axisLine={false}
-                      width={45}
-                    />
-                    <Tooltip contentStyle={tooltipStyle} />
-                    <ReferenceLine
-                      y={data.threshold}
-                      stroke="#ffb454"
-                      strokeDasharray="5 5"
-                    />
-                    <Line
-                      type="linear"
-                      dataKey="replayScore"
-                      stroke="#a795f9"
-                      strokeWidth={2}
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                    {alerts.map((point) => (
-                      <ReferenceDot
-                        key={point.timestep}
-                        x={point.timestep}
-                        y={point.anomaly_score}
-                        r={3}
-                        fill="#ff7388"
-                        stroke="none"
-                      />
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </section>
-
-            <section className="alerts-panel">
-              <div className="panel-heading">
-                <div>
-                  <h2>Detected Anomalies</h2>
-                  <p>Flagged telemetry readings within the current window</p>
-                </div>
-                <span className="alert-count">{alerts.length} alerts</span>
-              </div>
-
-              {alerts.length === 0 ? (
-                <p className="subtext">No anomalies flagged in this window.</p>
-              ) : (
-                <div className="alerts-list">
-                  {alerts.slice(0, 12).map((point) => (
-                    <div className="alert-row" key={point.timestep}>
-                      <span className="alert-index">
-                        ● &nbsp; Timestep {point.timestep}
-                      </span>
-                      <span className="alert-score">
-                        Score: {point.anomaly_score.toFixed(4)}
-                      </span>
-                    </div>
+              <div className="control-group">
+                <label htmlFor="model">Detection model</label>
+                <select
+                  id="model"
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                >
+                  {availableModels.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
                   ))}
-                  {alerts.length > 12 && (
-                    <p className="subtext">
-                      Showing the first 12 of {alerts.length} flagged readings.
-                    </p>
-                  )}
-                </div>
-              )}
+                </select>
+              </div>
+
+              <div className="control-note">
+                <span className="dot amber" />
+                Historical replay, not live spacecraft data
+              </div>
             </section>
 
-            <div className="footer-row">
-              <div className="subtext">
-                Window {start.toLocaleString()}–
-                {(start + points.length - 1).toLocaleString()} of{" "}
-                {data.total_predictions.toLocaleString()} scored windows
+            <section className="kpi-grid">
+              <div className="kpi">
+                <div className="kpi-label">VISIBLE READINGS</div>
+
+                <div className="kpi-value">
+                  {Math.min(cursorIndex + 1, points.length)}
+                </div>
+
+                <div className="kpi-foot">Current telemetry window</div>
               </div>
-              <div className="pager">
-                <button
-                  disabled={start === 0}
-                  onClick={() => setStart((s) => Math.max(0, s - PAGE_SIZE))}
-                >
-                  ← Previous
-                </button>
-                <button
-                  disabled={lastPage}
-                  onClick={() => setStart((s) => s + PAGE_SIZE)}
-                >
-                  Next →
-                </button>
+              <div className="kpi">
+                <div className="kpi-label">FLAGGED TIMESTEPS</div>
+                <div className="kpi-value alert-color">{alerts.length}</div>
+                <div className="kpi-foot">Model-generated alerts</div>
               </div>
-            </div>
+              <div className="kpi">
+                <div className="kpi-label">DETECTION THRESHOLD</div>
+                <div className="kpi-value">
+                  {data ? data.threshold.toFixed(4) : "—"}
+                </div>
+                <div className="kpi-foot">
+                  Calibrated on normal validation data
+                </div>
+              </div>
+              <div className="kpi">
+                <div className="kpi-label">TOTAL PREDICTIONS</div>
+                <div className="kpi-value">
+                  {data ? data.total_predictions.toLocaleString() : "—"}
+                </div>
+                <div className="kpi-foot">Available historical scores</div>
+              </div>
+            </section>
+
+            {error && (
+              <div className="error">{error}. Check your FastAPI server.</div>
+            )}
+            {loading && (
+              <div className="empty-state">
+                Loading spacecraft telemetry and predictions...
+              </div>
+            )}
+
+            {data && (
+              <>
+                <section className="playback-panel">
+                  <div className="playback-header">
+                    <div>
+                      <h2>Telemetry Replay</h2>
+                      <p className="subtext">
+                        Simulated playback of historical spacecraft readings
+                      </p>
+                    </div>
+
+                    <span className="playback-position">
+                      Timestep {currentPoint?.timestep ?? "—"}
+                    </span>
+                  </div>
+
+                  <div className="playback-actions">
+                    <button
+                      onClick={() => {
+                        if (playing) {
+                          setPlaying(false);
+                        } else {
+                          if (cursorIndex >= points.length - 1) {
+                            setCursorIndex(0);
+                          }
+                          setPlaying(true);
+                        }
+                      }}
+                    >
+                      {playing ? "⏸ Pause" : "▶ Play"}
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setPlaying(false);
+                        setCursorIndex(0);
+                      }}
+                    >
+                      ↺ Restart
+                    </button>
+
+                    <label htmlFor="playback-speed">Speed</label>
+                    <select
+                      id="playback-speed"
+                      value={playbackSpeed}
+                      onChange={(e) => setPlaybackSpeed(Number(e.target.value))}
+                    >
+                      <option value={1}>1×</option>
+                      <option value={2}>2×</option>
+                      <option value={4}>4×</option>
+                    </select>
+                  </div>
+
+                  <input
+                    className="playback-slider"
+                    type="range"
+                    min={0}
+                    max={Math.max(0, points.length - 1)}
+                    value={Math.min(
+                      cursorIndex,
+                      Math.max(0, points.length - 1),
+                    )}
+                    onChange={(e) => {
+                      setPlaying(false);
+                      setCursorIndex(Number(e.target.value));
+                    }}
+                    aria-label="Telemetry replay position"
+                  />
+
+                  <div className="playback-progress">
+                    <span>
+                      {Math.min(cursorIndex + 1, points.length)} readings
+                      replayed
+                    </span>
+                    <span>{points.length} total readings</span>
+                  </div>
+                </section>
+
+                <section className="chart-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <h2>Spacecraft Telemetry</h2>
+                      <p>Normalized sensor measurements over time</p>
+                    </div>
+                    <span className="chart-legend">
+                      ● Telemetry &nbsp;{" "}
+                      <span className="alert-color">● Alerts</span>
+                    </span>
+                  </div>
+
+                  <div className="chart-wrap">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={chartPoints}
+                        margin={{ top: 12, right: 20, left: 0, bottom: 5 }}
+                      >
+                        <CartesianGrid
+                          stroke="#263143"
+                          strokeDasharray="3 5"
+                          vertical={false}
+                        />
+                        <XAxis
+                          dataKey="timestep"
+                          type="number"
+                          domain={["dataMin", "dataMax"]}
+                          stroke="#8291a6"
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis
+                          domain={[-1.1, 1.1]}
+                          stroke="#8291a6"
+                          tickLine={false}
+                          axisLine={false}
+                          width={45}
+                        />
+                        <Tooltip contentStyle={tooltipStyle} />
+                        <Line
+                          type="linear"
+                          dataKey="replayValue"
+                          stroke="#5ca8f9"
+                          strokeWidth={2}
+                          dot={false}
+                          isAnimationActive={false}
+                        />
+                        {alerts.map((point) => (
+                          <ReferenceDot
+                            key={point.timestep}
+                            x={point.timestep}
+                            y={point.value}
+                            r={3}
+                            fill="#ff7388"
+                            stroke="none"
+                          />
+                        ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </section>
+
+                <section className="chart-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <h2>Anomaly Detection Scores</h2>
+                      <p>
+                        Forecast error compared against the calibrated threshold
+                      </p>
+                    </div>
+                    <span className="chart-legend">● Prediction error</span>
+                  </div>
+
+                  <div className="chart-wrap">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={chartPoints}
+                        margin={{ top: 12, right: 20, left: 0, bottom: 5 }}
+                      >
+                        <CartesianGrid
+                          stroke="#263143"
+                          strokeDasharray="3 5"
+                          vertical={false}
+                        />
+                        <XAxis
+                          dataKey="timestep"
+                          type="number"
+                          domain={["dataMin", "dataMax"]}
+                          stroke="#8291a6"
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis
+                          stroke="#8291a6"
+                          tickLine={false}
+                          axisLine={false}
+                          width={45}
+                        />
+                        <Tooltip contentStyle={tooltipStyle} />
+                        <ReferenceLine
+                          y={data.threshold}
+                          stroke="#ffb454"
+                          strokeDasharray="5 5"
+                        />
+                        <Line
+                          type="linear"
+                          dataKey="replayScore"
+                          stroke="#a795f9"
+                          strokeWidth={2}
+                          dot={false}
+                          isAnimationActive={false}
+                        />
+                        {alerts.map((point) => (
+                          <ReferenceDot
+                            key={point.timestep}
+                            x={point.timestep}
+                            y={point.anomaly_score}
+                            r={3}
+                            fill="#ff7388"
+                            stroke="none"
+                          />
+                        ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </section>
+
+                <section className="alerts-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <h2>Detected Anomalies</h2>
+                      <p>
+                        Flagged telemetry readings within the current window
+                      </p>
+                    </div>
+                    <span className="alert-count">{alerts.length} alerts</span>
+                  </div>
+
+                  {alerts.length === 0 ? (
+                    <p className="subtext">
+                      No anomalies flagged in this window.
+                    </p>
+                  ) : (
+                    <div className="alerts-list">
+                      {alerts.slice(0, 12).map((point) => (
+                        <div className="alert-row" key={point.timestep}>
+                          <span className="alert-index">
+                            ● &nbsp; Timestep {point.timestep}
+                          </span>
+                          <span className="alert-score">
+                            Score: {point.anomaly_score.toFixed(4)}
+                          </span>
+                        </div>
+                      ))}
+                      {alerts.length > 12 && (
+                        <p className="subtext">
+                          Showing the first 12 of {alerts.length} flagged
+                          readings.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </section>
+
+                <div className="footer-row">
+                  <div className="subtext">
+                    Window {start.toLocaleString()}–
+                    {(start + points.length - 1).toLocaleString()} of{" "}
+                    {data.total_predictions.toLocaleString()} scored windows
+                  </div>
+                  <div className="pager">
+                    <button
+                      disabled={start === 0}
+                      onClick={() =>
+                        setStart((s) => Math.max(0, s - PAGE_SIZE))
+                      }
+                    >
+                      ← Previous
+                    </button>
+                    <button
+                      disabled={lastPage}
+                      onClick={() => setStart((s) => s + PAGE_SIZE)}
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </>
         )}
-
         <footer className="footer-note">
           MissionGuard • Research prototype • Anomaly flags are model
           predictions, not verified spacecraft faults.
