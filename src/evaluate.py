@@ -170,6 +170,38 @@ def main():
     report_path.parent.mkdir(exist_ok=True)
     results.to_csv(report_path, index=False)
 
+
+    # Save timestep-level predictions for error analysis
+    analysis = pd.DataFrame({
+        "timestep": test_df["timestep"].to_numpy()[offset:],
+        "value": test_df["value"].to_numpy()[offset:],
+        "anomaly_score": test_scores,
+        "threshold": threshold,
+        "ground_truth": y_true,
+        "lstm_prediction": predictions,
+        "baseline_prediction": baseline_predictions
+    })
+
+    # Classify each LSTM prediction
+    analysis["outcome"] = np.select(
+        [
+            y_true & predictions,
+            ~y_true & predictions,
+            y_true & ~predictions
+        ],
+        ["TP", "FP", "FN"],
+        default="TN"
+    )
+
+    analysis_path = report_path.with_name(
+        report_path.stem + "_timesteps.csv"
+    )
+
+    analysis.to_csv(analysis_path, index=False)
+
+    print(f"Timestep analysis saved: {analysis_path}")
+
+
     print(f"\nChannel: {args.channel}")
     print(f"Input features: {input_size}")
     print(f"Device: {device}")

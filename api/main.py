@@ -13,6 +13,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 
 from functools import lru_cache
+import ast
 
 app = FastAPI(
     title="MissionGuard API",
@@ -234,4 +235,34 @@ def get_event_evaluation(
         "horizon": horizon,
         "use_commands": use_commands,
         "results": records
+    }
+
+
+
+@app.get("/labels/{channel}")
+def get_anomaly_labels(channel: str):
+    if not channel.replace("-", "").isalnum():
+        raise HTTPException(400, "Invalid channel")
+
+    labels_path = root / "data/raw/labeled_anomalies.csv"
+
+    if not labels_path.exists():
+        raise HTTPException(404, "Anomaly labels unavailable")
+
+    labels = pd.read_csv(labels_path)
+    row = labels.loc[labels["chan_id"] == channel]
+
+    if row.empty:
+        raise HTTPException(404, "Channel labels not found")
+
+    intervals = ast.literal_eval(
+        row.iloc[0]["anomaly_sequences"]
+    )
+
+    return {
+        "channel": channel,
+        "intervals": [
+            {"start": int(start), "end": int(end)}
+            for start, end in intervals
+        ]
     }

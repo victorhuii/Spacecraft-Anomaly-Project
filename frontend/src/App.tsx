@@ -9,6 +9,7 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  ReferenceArea,
 } from "recharts";
 import AnalyticsPanel from "./AnalyticsPanel";
 
@@ -17,6 +18,11 @@ type TelemetryPoint = {
   value: number;
   anomaly_score: number;
   is_anomaly: boolean;
+};
+
+type AnomalyInterval = {
+  start: number;
+  end: number;
 };
 
 type InferenceResponse = {
@@ -45,6 +51,10 @@ export default function App() {
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [cursorIndex, setCursorIndex] = useState(PAGE_SIZE - 1);
   const [page, setPage] = useState<"monitor" | "analytics">("monitor");
+
+  const [labeledIntervals, setLabeledIntervals] = useState<AnomalyInterval[]>(
+    [],
+  );
 
   // Load available checkpoints
   useEffect(() => {
@@ -112,6 +122,34 @@ export default function App() {
 
     return () => controller.abort();
   }, [selectedModel, start, channel]);
+
+  useEffect(() => {
+    if (!channel) return;
+
+    const controller = new AbortController();
+
+    setLabeledIntervals([]);
+
+    fetch(`/api/labels/${encodeURIComponent(channel)}`, {
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("Labels unavailable");
+        return response.json();
+      })
+      .then((result) => {
+        if (!controller.signal.aborted) {
+          setLabeledIntervals(result.intervals);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setLabeledIntervals([]);
+        }
+      });
+
+    return () => controller.abort();
+  }, [channel]);
 
   function changeChannel(next: string) {
     const choices = models.filter((m) => m.startsWith(`${next}_h`));
@@ -428,6 +466,26 @@ export default function App() {
                           width={45}
                         />
                         <Tooltip contentStyle={tooltipStyle} />
+
+                        {labeledIntervals
+                          .filter(
+                            (interval) =>
+                              points.length > 0 &&
+                              interval.end >= points[0].timestep &&
+                              interval.start <=
+                                points[points.length - 1].timestep,
+                          )
+                          .map((interval, index) => (
+                            <ReferenceArea
+                              key={index}
+                              x1={interval.start}
+                              x2={interval.end}
+                              fill="#ff6b81"
+                              fillOpacity={0.13}
+                              stroke="none"
+                            />
+                          ))}
+
                         <Line
                           type="linear"
                           dataKey="replayValue"
@@ -493,6 +551,26 @@ export default function App() {
                           stroke="#ffb454"
                           strokeDasharray="5 5"
                         />
+
+                        {labeledIntervals
+                          .filter(
+                            (interval) =>
+                              points.length > 0 &&
+                              interval.end >= points[0].timestep &&
+                              interval.start <=
+                                points[points.length - 1].timestep,
+                          )
+                          .map((interval, index) => (
+                            <ReferenceArea
+                              key={index}
+                              x1={interval.start}
+                              x2={interval.end}
+                              fill="#ff6b81"
+                              fillOpacity={0.13}
+                              stroke="none"
+                            />
+                          ))}
+
                         <Line
                           type="linear"
                           dataKey="replayScore"

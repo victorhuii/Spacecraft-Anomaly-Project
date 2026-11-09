@@ -71,3 +71,9 @@ def test_missing_event_evaluation():
     response = client.get("/evaluation/Z-99/events")
 
     assert response.status_code == 404
+
+
+def test_invalid_label_channel():
+    response = client.get("/labels/invalid!!")
+
+    assert response.status_code == 400
