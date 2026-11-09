@@ -1,0 +1,24 @@
+
+# Data Processing
+numpy
+pandas
+pyarrow
+
+# Data Visualization
+matplotlib
+seaborn
+plotly
+
+# Machine Learning
+scikit-learn
+torch
+
+# Jupyter Notebooks
+jupyter
+ipykernel
+
+# NASA Dataset Download
+huggingface_hub
+
+# Testing
+pytest
