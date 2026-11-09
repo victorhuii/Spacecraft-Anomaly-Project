@@ -458,3 +458,94 @@ h1 {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Telemetry Replay */
+
+.playback-panel {
+  background: #111b28;
+  border: 1px solid #263446;
+  border-radius: 12px;
+  padding: 22px 24px;
+  margin-bottom: 22px;
+}
+
+.playback-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.playback-header h2 {
+  font-size: 15px;
+  margin: 0 0 6px;
+}
+
+.playback-header p {
+  margin: 0;
+}
+
+.playback-position {
+  font-size: 13px;
+  font-weight: 600;
+  color: #7cb8f5;
+  font-variant-numeric: tabular-nums;
+}
+
+.playback-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.playback-actions button,
+.playback-actions select {
+  background: #1b2c42;
+  border: 1px solid #34516f;
+  border-radius: 7px;
+  padding: 9px 16px;
+  color: #d6e6fa;
+  font-size: 12px;
+}
+
+.playback-actions button:hover {
+  background: #294665;
+}
+
+.playback-actions label {
+  margin-left: 12px;
+  color: #90a1b9;
+  font-size: 12px;
+}
+
+.playback-slider {
+  display: block;
+  width: 100%;
+  height: 6px;
+  margin: 8px 0 14px;
+  accent-color: #60a5fa;
+  cursor: pointer;
+}
+
+.playback-progress {
+  display: flex;
+  justify-content: space-between;
+  color: #8291a6;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 700px) {
+  .playback-panel {
+    padding: 16px;
+  }
+
+  .playback-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

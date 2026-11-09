@@ -65,3 +65,9 @@ def test_inference_pagination(monkeypatch):
     assert result["points"][0]["timestep"] == 101
     assert result["points"][0]["is_anomaly"] is True
     assert result["points"][1]["is_anomaly"] is False
+
+
+def test_missing_event_evaluation():
+    response = client.get("/evaluation/Z-99/events")
+
+    assert response.status_code == 404

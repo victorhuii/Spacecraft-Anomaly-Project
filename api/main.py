@@ -198,3 +198,40 @@ def get_inference(
         "points": points
     }
 
+
+
+@app.get("/evaluation/{channel}/events")
+def get_event_evaluation(
+    channel: str,
+    horizon: int = 1,
+    use_commands: bool = False
+):
+    if not channel.replace("-", "").isalnum() or horizon < 1:
+        raise HTTPException(400, "Invalid channel or horizon")
+
+    suffix = "_cmd" if use_commands else ""
+
+    report_path = (
+        root / "reports"
+        / f"{channel}_h{horizon}{suffix}_evaluation_events.csv"
+    )
+
+    if not report_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Event evaluation report not found"
+        )
+
+    results = pd.read_csv(report_path)
+
+    # Convert missing CSV values to JSON null
+    records = results.astype(object).where(
+        pd.notna(results), None
+    ).to_dict(orient="records")
+
+    return {
+        "channel": channel,
+        "horizon": horizon,
+        "use_commands": use_commands,
+        "results": records
+    }

@@ -1,5 +1,4 @@
-
-import { useEffect, useState } from 'react'
+import { useEffect, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -10,115 +9,154 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-} from 'recharts'
+} from "recharts";
 
 type TelemetryPoint = {
-  timestep: number
-  value: number
-  anomaly_score: number
-  is_anomaly: boolean
-}
+  timestep: number;
+  value: number;
+  anomaly_score: number;
+  is_anomaly: boolean;
+};
 
 type InferenceResponse = {
-  channel: string
-  model: string
-  threshold: number
-  total_predictions: number
-  points: TelemetryPoint[]
-}
+  channel: string;
+  model: string;
+  threshold: number;
+  total_predictions: number;
+  points: TelemetryPoint[];
+};
 
-const PAGE_SIZE = 300
+const PAGE_SIZE = 300;
 
 export default function App() {
-  const [models, setModels] = useState<string[]>([])
-  const [selectedModel, setSelectedModel] = useState('A-2_h1_cmd')
-  const [start, setStart] = useState(4300)
-  const [data, setData] = useState<InferenceResponse | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [models, setModels] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState("A-2_h1_cmd");
+  const [start, setStart] = useState(4300);
+  const [data, setData] = useState<InferenceResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const channel = selectedModel.split('_h')[0]
-  const channels = [...new Set(models.map(m => m.split('_h')[0]))].sort()
-  const availableModels = models.filter(m => m.startsWith(`${channel}_h`))
+  const channel = selectedModel.split("_h")[0];
+  const channels = [...new Set(models.map((m) => m.split("_h")[0]))].sort();
+  const availableModels = models.filter((m) => m.startsWith(`${channel}_h`));
+
+  const [playing, setPlaying] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [cursorIndex, setCursorIndex] = useState(PAGE_SIZE - 1);
 
   // Load available checkpoints
   useEffect(() => {
-    const controller = new AbortController()
+    const controller = new AbortController();
 
-    fetch('/api/models', { signal: controller.signal })
-      .then(res => {
-        if (!res.ok) throw new Error('Cannot load available models')
-        return res.json()
+    fetch("/api/models", { signal: controller.signal })
+      .then((res) => {
+        if (!res.ok) throw new Error("Cannot load available models");
+        return res.json();
       })
-      .then(result => {
-        const names: string[] = result.models
-        setModels(names)
-        setSelectedModel(current =>
-          names.includes(current) ? current : (names[0] ?? '')
-        )
+      .then((result) => {
+        const names: string[] = result.models;
+        setModels(names);
+        setSelectedModel((current) =>
+          names.includes(current) ? current : (names[0] ?? ""),
+        );
       })
-      .catch(err => {
-        if (!controller.signal.aborted) setError(err.message)
-      })
+      .catch((err) => {
+        if (!controller.signal.aborted) setError(err.message);
+      });
 
-    return () => controller.abort()
-  }, [])
+    return () => controller.abort();
+  }, []);
 
   // Fetch model predictions when selection changes
   useEffect(() => {
-    if (!selectedModel) return
+    if (!selectedModel) return;
 
-    const match = selectedModel.match(/^(.+)_h(\d+)(_cmd)?$/)
-    if (!match) return
+    const match = selectedModel.match(/^(.+)_h(\d+)(_cmd)?$/);
+    if (!match) return;
 
-    const controller = new AbortController()
+    const controller = new AbortController();
 
     const params = new URLSearchParams({
       horizon: match[2],
       use_commands: String(Boolean(match[3])),
       start: String(start),
       limit: String(PAGE_SIZE),
-    })
+    });
 
-    setLoading(true)
-    setError('')
-    setData(null)
+    setLoading(true);
+    setError("");
+    setData(null);
 
     fetch(`/api/inference/${channel}?${params}`, {
       signal: controller.signal,
     })
-      .then(res => {
-        if (!res.ok) throw new Error(`Inference failed (${res.status})`)
-        return res.json()
+      .then((res) => {
+        if (!res.ok) throw new Error(`Inference failed (${res.status})`);
+        return res.json();
       })
-      .then((result: InferenceResponse) => setData(result))
-      .catch(err => {
-        if (!controller.signal.aborted) setError(err.message)
+
+      .then((result: InferenceResponse) => {
+        setData(result);
+        setCursorIndex(result.points.length - 1);
+        setPlaying(false);
+      })
+
+      .catch((err) => {
+        if (!controller.signal.aborted) setError(err.message);
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false)
-      })
+        if (!controller.signal.aborted) setLoading(false);
+      });
 
-    return () => controller.abort()
-  }, [selectedModel, start, channel])
+    return () => controller.abort();
+  }, [selectedModel, start, channel]);
 
   function changeChannel(next: string) {
-    const choices = models.filter(m => m.startsWith(`${next}_h`))
-    const preferred = choices.find(m => m === `${next}_h1_cmd`)
-    setSelectedModel(preferred ?? choices[0] ?? '')
-    setStart(next === 'A-2' ? 4300 : 0)
+    const choices = models.filter((m) => m.startsWith(`${next}_h`));
+    const preferred = choices.find((m) => m === `${next}_h1_cmd`);
+    setSelectedModel(preferred ?? choices[0] ?? "");
+    setStart(next === "A-2" ? 4300 : 0);
   }
 
-  const points = data?.points ?? []
-  const alerts = points.filter(p => p.is_anomaly)
-  const lastPage = data ? start + PAGE_SIZE >= data.total_predictions : true
+  const points = data?.points ?? [];
+
+  // Hide readings that haven't been replayed yet
+  const chartPoints = points.map((point, index) => ({
+    ...point,
+    replayValue: index <= cursorIndex ? point.value : null,
+    replayScore: index <= cursorIndex ? point.anomaly_score : null,
+  }));
+
+  // Display alerts only after playback reaches them
+  const alerts = points.filter(
+    (point, index) => index <= cursorIndex && point.is_anomaly,
+  );
+
+  const currentPoint = points[cursorIndex];
+
+  const lastPage = data ? start + PAGE_SIZE >= data.total_predictions : true;
 
   const tooltipStyle = {
-    backgroundColor: '#151e2c',
-    border: '1px solid #293749',
+    backgroundColor: "#151e2c",
+    border: "1px solid #293749",
     borderRadius: 8,
-    color: '#e7edf6',
-  }
+    color: "#e7edf6",
+  };
+
+  useEffect(() => {
+    if (!playing || !data) return;
+
+    const timer = window.setTimeout(() => {
+      if (cursorIndex >= data.points.length - 1) {
+        setPlaying(false);
+        return;
+      }
+
+      setCursorIndex((index) => index + 1);
+    }, 250 / playbackSpeed);
+
+    return () => window.clearTimeout(timer);
+  }, [playing, cursorIndex, playbackSpeed, data]);
 
   return (
     <div className="shell">
@@ -140,7 +178,9 @@ export default function App() {
         <div className="side-detail muted">SMAP / Curiosity</div>
 
         <div className="sidebar-bottom">
-          <div className="side-detail"><span className="dot" /> Local API</div>
+          <div className="side-detail">
+            <span className="dot" /> Local API
+          </div>
           <div className="side-detail muted">Historical telemetry replay</div>
           <div className="side-detail muted">MissionGuard v0.2</div>
         </div>
@@ -157,7 +197,7 @@ export default function App() {
           </div>
           <div className="status-badge">
             <span className="dot" />
-            {data ? 'API CONNECTED' : 'LOCAL MODE'}
+            {data ? "API CONNECTED" : "LOCAL MODE"}
           </div>
         </header>
 
@@ -167,10 +207,12 @@ export default function App() {
             <select
               id="channel"
               value={channel}
-              onChange={e => changeChannel(e.target.value)}
+              onChange={(e) => changeChannel(e.target.value)}
             >
-              {channels.map(name => (
-                <option key={name} value={name}>{name}</option>
+              {channels.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
               ))}
             </select>
           </div>
@@ -180,10 +222,12 @@ export default function App() {
             <select
               id="model"
               value={selectedModel}
-              onChange={e => setSelectedModel(e.target.value)}
+              onChange={(e) => setSelectedModel(e.target.value)}
             >
-              {availableModels.map(name => (
-                <option key={name} value={name}>{name}</option>
+              {availableModels.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
               ))}
             </select>
           </div>
@@ -197,7 +241,11 @@ export default function App() {
         <section className="kpi-grid">
           <div className="kpi">
             <div className="kpi-label">VISIBLE READINGS</div>
-            <div className="kpi-value">{points.length}</div>
+
+            <div className="kpi-value">
+              {Math.min(cursorIndex + 1, points.length)}
+            </div>
+
             <div className="kpi-foot">Current telemetry window</div>
           </div>
           <div className="kpi">
@@ -208,42 +256,150 @@ export default function App() {
           <div className="kpi">
             <div className="kpi-label">DETECTION THRESHOLD</div>
             <div className="kpi-value">
-              {data ? data.threshold.toFixed(4) : '—'}
+              {data ? data.threshold.toFixed(4) : "—"}
             </div>
             <div className="kpi-foot">Calibrated on normal validation data</div>
           </div>
           <div className="kpi">
             <div className="kpi-label">TOTAL PREDICTIONS</div>
             <div className="kpi-value">
-              {data ? data.total_predictions.toLocaleString() : '—'}
+              {data ? data.total_predictions.toLocaleString() : "—"}
             </div>
             <div className="kpi-foot">Available historical scores</div>
           </div>
         </section>
 
-        {error && <div className="error">{error}. Check your FastAPI server.</div>}
-        {loading && <div className="empty-state">Loading spacecraft telemetry and predictions...</div>}
+        {error && (
+          <div className="error">{error}. Check your FastAPI server.</div>
+        )}
+        {loading && (
+          <div className="empty-state">
+            Loading spacecraft telemetry and predictions...
+          </div>
+        )}
 
         {data && (
           <>
+            <section className="playback-panel">
+              <div className="playback-header">
+                <div>
+                  <h2>Telemetry Replay</h2>
+                  <p className="subtext">
+                    Simulated playback of historical spacecraft readings
+                  </p>
+                </div>
+
+                <span className="playback-position">
+                  Timestep {currentPoint?.timestep ?? "—"}
+                </span>
+              </div>
+
+              <div className="playback-actions">
+                <button
+                  onClick={() => {
+                    if (playing) {
+                      setPlaying(false);
+                    } else {
+                      if (cursorIndex >= points.length - 1) {
+                        setCursorIndex(0);
+                      }
+                      setPlaying(true);
+                    }
+                  }}
+                >
+                  {playing ? "⏸ Pause" : "▶ Play"}
+                </button>
+
+                <button
+                  onClick={() => {
+                    setPlaying(false);
+                    setCursorIndex(0);
+                  }}
+                >
+                  ↺ Restart
+                </button>
+
+                <label htmlFor="playback-speed">Speed</label>
+                <select
+                  id="playback-speed"
+                  value={playbackSpeed}
+                  onChange={(e) => setPlaybackSpeed(Number(e.target.value))}
+                >
+                  <option value={1}>1×</option>
+                  <option value={2}>2×</option>
+                  <option value={4}>4×</option>
+                </select>
+              </div>
+
+              <input
+                className="playback-slider"
+                type="range"
+                min={0}
+                max={Math.max(0, points.length - 1)}
+                value={Math.min(cursorIndex, Math.max(0, points.length - 1))}
+                onChange={(e) => {
+                  setPlaying(false);
+                  setCursorIndex(Number(e.target.value));
+                }}
+                aria-label="Telemetry replay position"
+              />
+
+              <div className="playback-progress">
+                <span>
+                  {Math.min(cursorIndex + 1, points.length)} readings replayed
+                </span>
+                <span>{points.length} total readings</span>
+              </div>
+            </section>
+
             <section className="chart-panel">
               <div className="panel-heading">
                 <div>
                   <h2>Spacecraft Telemetry</h2>
                   <p>Normalized sensor measurements over time</p>
                 </div>
-                <span className="chart-legend">● Telemetry &nbsp; <span className="alert-color">● Alerts</span></span>
+                <span className="chart-legend">
+                  ● Telemetry &nbsp;{" "}
+                  <span className="alert-color">● Alerts</span>
+                </span>
               </div>
 
               <div className="chart-wrap">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={points} margin={{ top: 12, right: 20, left: 0, bottom: 5 }}>
-                    <CartesianGrid stroke="#263143" strokeDasharray="3 5" vertical={false} />
-                    <XAxis dataKey="timestep" type="number" domain={['dataMin', 'dataMax']} stroke="#8291a6" tickLine={false} axisLine={false} />
-                    <YAxis domain={[-1.1, 1.1]} stroke="#8291a6" tickLine={false} axisLine={false} width={45} />
+                  <LineChart
+                    data={chartPoints}
+                    margin={{ top: 12, right: 20, left: 0, bottom: 5 }}
+                  >
+                    <CartesianGrid
+                      stroke="#263143"
+                      strokeDasharray="3 5"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="timestep"
+                      type="number"
+                      domain={["dataMin", "dataMax"]}
+                      stroke="#8291a6"
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      domain={[-1.1, 1.1]}
+                      stroke="#8291a6"
+                      tickLine={false}
+                      axisLine={false}
+                      width={45}
+                    />
                     <Tooltip contentStyle={tooltipStyle} />
-                    <Line type="linear" dataKey="value" stroke="#5ca8f9" strokeWidth={2} dot={false} isAnimationActive={false} />
-                    {alerts.map(point => (
+                    <Line
+                      type="linear"
+                      dataKey="replayValue"
+                      stroke="#5ca8f9"
+                      strokeWidth={2}
+                      dot={false}
+                      isAnimationActive={false}
+                    />
+                    {alerts.map((point) => (
                       <ReferenceDot
                         key={point.timestep}
                         x={point.timestep}
@@ -262,21 +418,53 @@ export default function App() {
               <div className="panel-heading">
                 <div>
                   <h2>Anomaly Detection Scores</h2>
-                  <p>Forecast error compared against the calibrated threshold</p>
+                  <p>
+                    Forecast error compared against the calibrated threshold
+                  </p>
                 </div>
                 <span className="chart-legend">● Prediction error</span>
               </div>
 
               <div className="chart-wrap">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={points} margin={{ top: 12, right: 20, left: 0, bottom: 5 }}>
-                    <CartesianGrid stroke="#263143" strokeDasharray="3 5" vertical={false} />
-                    <XAxis dataKey="timestep" type="number" domain={['dataMin', 'dataMax']} stroke="#8291a6" tickLine={false} axisLine={false} />
-                    <YAxis stroke="#8291a6" tickLine={false} axisLine={false} width={45} />
+                  <LineChart
+                    data={chartPoints}
+                    margin={{ top: 12, right: 20, left: 0, bottom: 5 }}
+                  >
+                    <CartesianGrid
+                      stroke="#263143"
+                      strokeDasharray="3 5"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="timestep"
+                      type="number"
+                      domain={["dataMin", "dataMax"]}
+                      stroke="#8291a6"
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      stroke="#8291a6"
+                      tickLine={false}
+                      axisLine={false}
+                      width={45}
+                    />
                     <Tooltip contentStyle={tooltipStyle} />
-                    <ReferenceLine y={data.threshold} stroke="#ffb454" strokeDasharray="5 5" />
-                    <Line type="linear" dataKey="anomaly_score" stroke="#a795f9" strokeWidth={2} dot={false} isAnimationActive={false} />
-                    {alerts.map(point => (
+                    <ReferenceLine
+                      y={data.threshold}
+                      stroke="#ffb454"
+                      strokeDasharray="5 5"
+                    />
+                    <Line
+                      type="linear"
+                      dataKey="replayScore"
+                      stroke="#a795f9"
+                      strokeWidth={2}
+                      dot={false}
+                      isAnimationActive={false}
+                    />
+                    {alerts.map((point) => (
                       <ReferenceDot
                         key={point.timestep}
                         x={point.timestep}
@@ -304,14 +492,20 @@ export default function App() {
                 <p className="subtext">No anomalies flagged in this window.</p>
               ) : (
                 <div className="alerts-list">
-                  {alerts.slice(0, 12).map(point => (
+                  {alerts.slice(0, 12).map((point) => (
                     <div className="alert-row" key={point.timestep}>
-                      <span className="alert-index">● &nbsp; Timestep {point.timestep}</span>
-                      <span className="alert-score">Score: {point.anomaly_score.toFixed(4)}</span>
+                      <span className="alert-index">
+                        ● &nbsp; Timestep {point.timestep}
+                      </span>
+                      <span className="alert-score">
+                        Score: {point.anomaly_score.toFixed(4)}
+                      </span>
                     </div>
                   ))}
                   {alerts.length > 12 && (
-                    <p className="subtext">Showing the first 12 of {alerts.length} flagged readings.</p>
+                    <p className="subtext">
+                      Showing the first 12 of {alerts.length} flagged readings.
+                    </p>
                   )}
                 </div>
               )}
@@ -319,13 +513,21 @@ export default function App() {
 
             <div className="footer-row">
               <div className="subtext">
-                Window {start.toLocaleString()}–{(start + points.length - 1).toLocaleString()} of {data.total_predictions.toLocaleString()} scored windows
+                Window {start.toLocaleString()}–
+                {(start + points.length - 1).toLocaleString()} of{" "}
+                {data.total_predictions.toLocaleString()} scored windows
               </div>
               <div className="pager">
-                <button disabled={start === 0} onClick={() => setStart(s => Math.max(0, s - PAGE_SIZE))}>
+                <button
+                  disabled={start === 0}
+                  onClick={() => setStart((s) => Math.max(0, s - PAGE_SIZE))}
+                >
                   ← Previous
                 </button>
-                <button disabled={lastPage} onClick={() => setStart(s => s + PAGE_SIZE)}>
+                <button
+                  disabled={lastPage}
+                  onClick={() => setStart((s) => s + PAGE_SIZE)}
+                >
                   Next →
                 </button>
               </div>
@@ -334,9 +536,10 @@ export default function App() {
         )}
 
         <footer className="footer-note">
-          MissionGuard • Research prototype • Anomaly flags are model predictions, not verified spacecraft faults.
+          MissionGuard • Research prototype • Anomaly flags are model
+          predictions, not verified spacecraft faults.
         </footer>
       </main>
     </div>
-  )
+  );
 }
