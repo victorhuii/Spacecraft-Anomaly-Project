@@ -2,41 +2,61 @@
 import numpy as np
 import torch
 
-from src.data import make_windows
+from src.data import make_windows, make_multivariate_windows
 
 
-def forecast_errors(model, values, window_size, horizon, device):
-    # Convert telemetry into prediction windows
-    X, y = make_windows(values, window_size, horizon)
+def forecast_errors(
+    model, data, window_size, horizon, device,
+    use_commands=False
+):
+    # Prepare input windows
+    if use_commands:
+        X, y = make_multivariate_windows(
+            data, window_size, horizon
+        )
+    else:
+        X, y = make_windows(
+            data, window_size, horizon
+        )
 
     model.eval()
-    predictions = []
+    forecasts = []
 
     with torch.no_grad():
         for i in range(0, len(X), 128):
-            batch = torch.from_numpy(X[i:i + 128]).to(device)
+            batch = torch.from_numpy(
+                X[i:i + 128]
+            ).to(device)
+
             output = model(batch)
-            predictions.append(output.cpu().numpy())
+            forecasts.append(output.cpu().numpy())
 
-    predictions = np.concatenate(predictions)
+    forecasts = np.concatenate(forecasts)
 
-    # One anomaly score per forecast window
-    return np.mean((y - predictions) ** 2, axis=1)
+    # Average squared error across forecast horizon
+    return np.mean(
+        (y - forecasts) ** 2,
+        axis=1
+    )
 
 
 def detect_anomalies(scores, normal_scores, quantile=0.99):
+    # Calibrate threshold using normal validation data
     threshold = np.quantile(normal_scores, quantile)
+
     predictions = scores > threshold
 
     return predictions, threshold
 
 
 def calculate_metrics(y_true, y_pred):
+    # Confusion matrix
     tp = np.sum(y_true & y_pred)
     fp = np.sum(~y_true & y_pred)
     fn = np.sum(y_true & ~y_pred)
     tn = np.sum(~y_true & ~y_pred)
 
+    # Evaluation metrics
     precision = tp / (tp + fp) if tp + fp else 0
     recall = tp / (tp + fn) if tp + fn else 0
     f1 = 2 * tp / (2 * tp + fp + fn) if 2 * tp + fp + fn else 0

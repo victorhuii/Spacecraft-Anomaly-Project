@@ -6,7 +6,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from src.data import load_channel, make_windows
+from src.data import load_channel, make_windows, make_multivariate_windows
 from src.models import LSTMForecaster
 
 
@@ -14,6 +14,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--channel", default="A-2")
 parser.add_argument("--horizon", type=int, default=1)
 parser.add_argument("--epochs", type=int, default=15)
+parser.add_argument("--use-commands", action="store_true")
 args = parser.parse_args()
 
 torch.manual_seed(42)
@@ -23,25 +24,44 @@ device = torch.device(
     "mps" if torch.backends.mps.is_available() else "cpu"
 )
 
-# Load training telemetry
+# Load telemetry
 df = load_channel(root, args.channel)
-values = df["value"].to_numpy(dtype="float32")
 
-# Split chronologically
-split = int(len(values) * 0.8)
-train_values = values[:split]
-val_values = values[split:]
+# Chronological train-validation split
+split = int(len(df) * 0.8)
 
-# Create sliding windows
-X_train, y_train = make_windows(
-    train_values, window_size=100, horizon=args.horizon
-)
+train_df = df.iloc[:split]
+val_df = df.iloc[split:]
 
-X_val, y_val = make_windows(
-    val_values, window_size=100, horizon=args.horizon
-)
+window_size = 100
 
-# Create data loaders
+# Prepare training and validation data
+if args.use_commands:
+    X_train, y_train = make_multivariate_windows(
+        train_df, window_size, args.horizon
+    )
+    X_val, y_val = make_multivariate_windows(
+        val_df, window_size, args.horizon
+    )
+else:
+    X_train, y_train = make_windows(
+        train_df["value"].to_numpy(),
+        window_size, args.horizon
+    )
+    X_val, y_val = make_windows(
+        val_df["value"].to_numpy(),
+        window_size, args.horizon
+    )
+
+input_size = X_train.shape[2]
+
+print(f"Channel: {args.channel}")
+print(f"Device: {device}")
+print(f"Input features: {input_size}")
+print(f"Training shape: {X_train.shape}")
+print(f"Validation shape: {X_val.shape}")
+
+# DataLoaders
 train_loader = DataLoader(
     TensorDataset(
         torch.from_numpy(X_train),
@@ -60,17 +80,28 @@ val_loader = DataLoader(
 )
 
 # Initialize model
-model = LSTMForecaster(horizon=args.horizon).to(device)
+model = LSTMForecaster(
+    input_size=input_size,
+    hidden_size=32,
+    horizon=args.horizon
+).to(device)
+
 criterion = nn.MSELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+optimizer = torch.optim.Adam(
+    model.parameters(), lr=0.001
+)
 
 best_val = float("inf")
+
+# Keep multivariate checkpoints separate
+suffix = "_cmd" if args.use_commands else ""
+
 save_dir = root / "models"
 save_dir.mkdir(exist_ok=True)
 
-save_path = save_dir / f"{args.channel}_h{args.horizon}.pt"
+save_path = save_dir / f"{args.channel}_h{args.horizon}{suffix}.pt"
 
-# Training loop
+# Training
 for epoch in range(args.epochs):
     model.train()
     train_loss = 0
@@ -79,6 +110,7 @@ for epoch in range(args.epochs):
         X, y = X.to(device), y.to(device)
 
         optimizer.zero_grad()
+
         loss = criterion(model(X), y)
         loss.backward()
         optimizer.step()
@@ -98,19 +130,21 @@ for epoch in range(args.epochs):
 
     val_loss /= len(X_val)
 
-    # Save best model
+    # Save best checkpoint
     if val_loss < best_val:
         best_val = val_loss
 
         torch.save({
             "model_state_dict": {
-                key: value.detach().cpu().clone()
-                for key, value in model.state_dict().items()
+                k: v.detach().cpu().clone()
+                for k, v in model.state_dict().items()
             },
             "channel": args.channel,
             "horizon": args.horizon,
-            "window_size": 100,
+            "window_size": window_size,
+            "input_size": input_size,
             "hidden_size": 32,
+            "use_commands": args.use_commands,
             "validation_loss": best_val
         }, save_path)
 

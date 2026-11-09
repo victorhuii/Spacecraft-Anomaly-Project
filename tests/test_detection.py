@@ -1,7 +1,16 @@
 
 import numpy as np
+import pandas as pd
+import torch
 
-from src.detection import calculate_metrics, detect_anomalies
+from src.models import LSTMForecaster
+
+from src.detection import (
+    calculate_metrics,
+    detect_anomalies,
+    forecast_errors
+)
+
 
 
 def test_metrics():
@@ -28,3 +37,28 @@ def test_detection_threshold():
     np.testing.assert_array_equal(
         predictions, [False, True]
     )
+
+
+def test_multivariate_forecasting():
+    df = pd.DataFrame({
+        "value": np.arange(12, dtype="float32"),
+        "cmd_0": np.zeros(12),
+        "cmd_1": np.ones(12)
+    })
+
+    model = LSTMForecaster(
+        input_size=3,
+        horizon=2
+    )
+
+    scores = forecast_errors(
+        model,
+        df,
+        window_size=3,
+        horizon=2,
+        device=torch.device("cpu"),
+        use_commands=True
+    )
+
+    assert scores.shape == (8,)
+    assert np.isfinite(scores).all()
