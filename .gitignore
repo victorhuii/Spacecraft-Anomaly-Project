@@ -1,10 +1,56 @@
-.venv/
-__pycache__/
-.ipynb_checkpoints/
-.pytest_cache/
-.DS_Store
-.env
 
+# Python Virtual Environments
+.venv/
+venv/
+env/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+
+# NASA Datasets
 data/raw/
+data/processed/
+
+# Trained ML Models
 models/
+*.pt
+*.pth
+*.ckpt
+
+# Generated Figures
 reports/figures/
+
+# Node.js / React
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+
+# IDE Settings
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Coverage Reports
+.coverage
+htmlcov/
+coverage/
