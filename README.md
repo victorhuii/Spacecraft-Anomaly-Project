@@ -10,6 +10,26 @@ MissionGuard is a full-stack machine learning research application for detecting
 
 The project investigates a central challenge in spacecraft monitoring: distinguishing anomalous behavior from normal operational variation while minimizing false alarms.
 
+## The Problem
+
+NASA spacecraft, including the SMAP satellite and Mars Curiosity rover, continuously generate telemetry to monitor their systems and operational health. Unusual sensor behavior, such as prolonged flatlines, unexpected spikes, or deviations from normal patterns, may indicate potential equipment or operational issues.
+
+However, analyzing thousands of sensor readings manually is impractical, and normal spacecraft operations can produce patterns that resemble anomalies. **MissionGuard explores how machine learning and statistical methods can automatically identify unusual telemetry behavior while minimizing false alarms**, helping engineers investigate potential problems more efficiently.
+
+## Understanding Telemetry Channels
+
+A **telemetry channel** represents a time series of measurements from a particular spacecraft sensor or monitored variable. The NASA Telemanom dataset contains 82 channels from SMAP and Mars Science Laboratory (MSL).
+
+Each channel contains sequential numerical readings, with associated spacecraft command features available as model inputs. MissionGuard visualizes these normalized measurements over time and highlights:
+
+- **Normal behavior:** Expected fluctuations and recurring sensor patterns.
+- **Potential anomalies:** Unusual changes, sustained constant readings, or other deviations detected by the models.
+- **NASA ground-truth annotations:** Historical intervals labeled as anomalous, used to evaluate detection performance.
+
+For example, selecting channel **A-2** displays its sensor readings over time, allowing users to compare NASA's annotated anomalies with predictions from the statistical detectors and LSTM.
+
+These anomaly labels identify unusual telemetry patterns, not necessarily confirmed spacecraft hardware failures.
+
 ![MissionGuard Telemetry Dashboard](docs/screenshots/telemetry-dashboard.png)
 
 ## Features
