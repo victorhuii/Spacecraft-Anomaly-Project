@@ -12,6 +12,7 @@ import {
   ReferenceArea,
 } from "recharts";
 import AnalyticsPanel from "./AnalyticsPanel";
+import { apiUrl } from "./api";
 
 type TelemetryPoint = {
   timestep: number;
@@ -71,7 +72,7 @@ export default function App() {
   useEffect(() => {
     const controller = new AbortController();
 
-    fetch("/api/models", { signal: controller.signal })
+    fetch(apiUrl("/models"), { signal: controller.signal })
       .then((res) => {
         if (!res.ok) throw new Error("Cannot load available models");
         return res.json();
@@ -94,7 +95,7 @@ export default function App() {
   useEffect(() => {
     const controller = new AbortController();
 
-    fetch("/api/channels", { signal: controller.signal })
+    fetch(apiUrl("/channels"), { signal: controller.signal })
       .then((response) => {
         if (!response.ok) {
           throw new Error("Cannot load available channels");
@@ -136,11 +137,11 @@ export default function App() {
       params.set("horizon", match[2]);
       params.set("use_commands", String(Boolean(match[3])));
 
-      url = `/api/inference/${encodeURIComponent(channel)}?${params}`;
+      url = apiUrl(`/inference/${encodeURIComponent(channel)}?${params}`);
     } else {
       params.set("method", detectionMethod);
 
-      url = `/api/statistical/${encodeURIComponent(channel)}?${params}`;
+      url = apiUrl(`/statistical/${encodeURIComponent(channel)}?${params}`);
     }
 
     setLoading(true);
@@ -182,7 +183,7 @@ export default function App() {
 
     setLabeledIntervals([]);
 
-    fetch(`/api/labels/${encodeURIComponent(channel)}`, {
+    fetch(apiUrl(`/labels/${encodeURIComponent(channel)}`), {
       signal: controller.signal,
     })
       .then((response) => {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { apiUrl } from "./api";
 
 type EvaluationRow = {
   Model: string;
@@ -55,7 +56,7 @@ export default function AnalyticsPanel({
       setEvents(null);
 
       try {
-        const base = `/api/evaluation/${encodeURIComponent(channel)}`;
+        const base = apiUrl(`/evaluation/${encodeURIComponent(channel)}`);
 
         const [metricResponse, eventResponse] = await Promise.all([
           fetch(`${base}?${params}`, { signal: controller.signal }),
