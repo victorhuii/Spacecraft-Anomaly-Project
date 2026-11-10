@@ -39,7 +39,7 @@ These anomaly labels identify unusual telemetry patterns, not necessarily confir
 - **Historical Replay:** Play, pause, restart, and navigate through spacecraft telemetry.
 - **Ground-Truth Visualization:** Highlight NASA-annotated anomalous intervals alongside model predictions.
 - **Model Analytics:** Compare precision, recall, F1, confusion-matrix counts, event detection, and false alert runs.
-- **Model Inference API:** Access paginated historical predictions through FastAPI.
+- **Historical Predictions API:** Access paginated, precomputed telemetry predictions through FastAPI.
 - **Automated Testing:** Python tests and GitHub Actions CI for backend validation and frontend builds.
 
 The public demo supports four representative channels. The local research pipeline supports the broader NASA Telemanom dataset.
