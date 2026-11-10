@@ -126,6 +126,7 @@ def event_metrics(y_true, y_pred):
     }
 
 
+
 def multi_scale_detect(
     normal_values,
     test_values,
@@ -135,11 +136,14 @@ def multi_scale_detect(
 ):
     """Detect low-variation anomalies across multiple time scales."""
 
+    if not windows or len(set(windows)) != len(windows):
+        raise ValueError("Windows must be nonempty and unique")
+
     if not 0 < quantile < 1:
         raise ValueError("quantile must be between 0 and 1")
 
     if not 1 <= required_votes <= len(windows):
-        raise ValueError("Invalid number of required votes")
+        raise ValueError("Invalid required votes")
 
     normal = pd.Series(
         np.asarray(normal_values, dtype=float)
@@ -149,33 +153,50 @@ def multi_scale_detect(
         np.asarray(test_values, dtype=float)
     )
 
+    if not np.isfinite(normal).all() or not np.isfinite(test).all():
+        raise ValueError("Telemetry must contain finite values")
+
     votes = np.zeros(len(test), dtype=int)
     thresholds = {}
+    active_windows = 0
 
     for window in windows:
         if window < 2 or window > len(normal):
             raise ValueError("Invalid rolling window")
 
-        # Calibrate on normal validation data only
+        # Calculate variation in normal telemetry
         normal_std = normal.rolling(
-            window, min_periods=window
+            window=window,
+            min_periods=window
         ).std()
 
         threshold = float(
             normal_std.dropna().quantile(quantile)
         )
 
-        thresholds[window] = threshold
+        # Disable windows with unusable thresholds
+        if threshold <= 0:
+            thresholds[window] = None
+            continue
 
-        # Evaluate unseen telemetry
+        thresholds[window] = threshold
+        active_windows += 1
+
+        # Evaluate test telemetry
         test_std = test.rolling(
-            window, min_periods=window
+            window=window,
+            min_periods=window
         ).std()
 
         flags = (test_std < threshold).fillna(False)
 
         votes += flags.to_numpy(dtype=int)
 
-    predictions = votes >= required_votes
+    # Keep the original voting requirement
+    if active_windows < required_votes:
+        predictions = np.zeros(len(test), dtype=bool)
+    else:
+        predictions = votes >= required_votes
 
     return predictions, thresholds
+

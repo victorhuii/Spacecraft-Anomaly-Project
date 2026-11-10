@@ -116,3 +116,27 @@ def test_multi_scale_detection():
 
     # Sustained flatline should trigger
     assert predictions[60]
+
+
+def test_zero_threshold_handling():
+    # Constant normal telemetry has zero variation
+    normal = np.zeros(100)
+
+    # Constant test telemetry
+    test = np.zeros(100)
+
+    predictions, thresholds = multi_scale_detect(
+        normal,
+        test,
+        windows=(15, 30, 60),
+        required_votes=2
+    )
+
+    # All three windows should be disabled
+    assert all(value is None for value in thresholds.values())
+
+    # No detector should flag anomalies
+    assert not predictions.any()
+
+    # Output must still match the input length
+    assert predictions.shape == (100,)
