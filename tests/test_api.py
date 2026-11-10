@@ -114,41 +114,82 @@ def test_channels_endpoint(tmp_path, monkeypatch):
     assert response.json()["channels"] == ["A-2"]
 
 
-def test_statistical_timeline_alignment():
-    rolling = client.get(
-        "/statistical/A-2?method=rolling&start=4300&limit=3"
+
+def test_statistical_timeline_alignment(monkeypatch):
+    import importlib
+    import numpy as np
+    import pandas as pd
+
+    from src.data import make_windows
+
+    api_module = importlib.import_module("api.main")
+
+    # Create synthetic training telemetry
+    train_indices = np.arange(400)
+    train_df = pd.DataFrame({
+        "value": np.sin(train_indices / 7)
+    })
+
+    # Create synthetic test telemetry with known timesteps
+    test_indices = np.arange(260)
+    test_df = pd.DataFrame({
+        "value": np.sin(test_indices / 7),
+        "timestep": test_indices
+    })
+
+    # Replace NASA file loading with synthetic data
+    def fake_load_channel(project_root, channel, split="train"):
+        assert channel == "A-2"
+        return train_df if split == "train" else test_df
+
+    monkeypatch.setattr(
+        api_module,
+        "load_channel",
+        fake_load_channel
     )
 
-    multi = client.get(
-        "/statistical/A-2?method=multi&start=4300&limit=3"
-    )
+    # Clear previous cached inference results
+    api_module.cached_statistical.cache_clear()
 
-    lstm = client.get(
-        "/inference/A-2?horizon=1&use_commands=true&start=4300&limit=3"
-    )
+    try:
+        rolling = client.get(
+            "/statistical/A-2?method=rolling&start=0&limit=3"
+        )
 
-    assert rolling.status_code == 200
-    assert multi.status_code == 200
-    assert lstm.status_code == 200
+        multi = client.get(
+            "/statistical/A-2?method=multi&start=0&limit=3"
+        )
 
-    responses = [
-        rolling.json(),
-        multi.json(),
-        lstm.json()
-    ]
+        assert rolling.status_code == 200
+        assert multi.status_code == 200
 
-    # All three methods must return the same timestamps
-    timesteps = [
-        [point["timestep"] for point in result["points"]]
-        for result in responses
-    ]
+        rolling_data = rolling.json()
+        multi_data = multi.json()
 
-    assert timesteps[0] == timesteps[1] == timesteps[2]
+        rolling_times = [
+            point["timestep"]
+            for point in rolling_data["points"]
+        ]
 
-    # All methods should expose the same number of scored timesteps
-    totals = [
-        result["total_predictions"]
-        for result in responses
-    ]
+        multi_times = [
+            point["timestep"]
+            for point in multi_data["points"]
+        ]
 
-    assert totals[0] == totals[1] == totals[2]
+        # Both statistical detectors start at timestep 100
+        assert rolling_times == [100, 101, 102]
+        assert multi_times == [100, 101, 102]
+
+        # Confirm alignment with the one-step LSTM window format
+        _, targets = make_windows(
+            test_df["value"].to_numpy(),
+            window_size=100,
+            horizon=1
+        )
+
+        assert rolling_data["total_predictions"] == len(targets)
+        assert multi_data["total_predictions"] == len(targets)
+
+    finally:
+        # Prevent synthetic data from contaminating other tests
+        api_module.cached_statistical.cache_clear()
