@@ -77,3 +77,78 @@ def test_invalid_label_channel():
     response = client.get("/labels/invalid!!")
 
     assert response.status_code == 400
+
+
+def test_invalid_statistical_method():
+    response = client.get(
+        "/statistical/A-2?method=unsupported"
+    )
+
+    assert response.status_code == 400
+
+
+def test_invalid_statistical_pagination():
+    response = client.get(
+        "/statistical/A-2?start=-1"
+    )
+
+    assert response.status_code == 400
+
+
+def test_channels_endpoint(tmp_path, monkeypatch):
+    train_dir = tmp_path / "data/raw/data/train"
+    test_dir = tmp_path / "data/raw/data/test"
+
+    train_dir.mkdir(parents=True)
+    test_dir.mkdir(parents=True)
+
+    (train_dir / "A-2.parquet").touch()
+    (test_dir / "A-2.parquet").touch()
+    (test_dir / "A-8.parquet").touch()
+
+    monkeypatch.setattr("api.main.root", tmp_path)
+
+    response = client.get("/channels")
+
+    assert response.status_code == 200
+    assert response.json()["channels"] == ["A-2"]
+
+
+def test_statistical_timeline_alignment():
+    rolling = client.get(
+        "/statistical/A-2?method=rolling&start=4300&limit=3"
+    )
+
+    multi = client.get(
+        "/statistical/A-2?method=multi&start=4300&limit=3"
+    )
+
+    lstm = client.get(
+        "/inference/A-2?horizon=1&use_commands=true&start=4300&limit=3"
+    )
+
+    assert rolling.status_code == 200
+    assert multi.status_code == 200
+    assert lstm.status_code == 200
+
+    responses = [
+        rolling.json(),
+        multi.json(),
+        lstm.json()
+    ]
+
+    # All three methods must return the same timestamps
+    timesteps = [
+        [point["timestep"] for point in result["points"]]
+        for result in responses
+    ]
+
+    assert timesteps[0] == timesteps[1] == timesteps[2]
+
+    # All methods should expose the same number of scored timesteps
+    totals = [
+        result["total_predictions"]
+        for result in responses
+    ]
+
+    assert totals[0] == totals[1] == totals[2]

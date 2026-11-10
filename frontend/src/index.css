@@ -680,3 +680,41 @@ h1 {
     padding: 16px;
   }
 }
+
+
+
+/* Detection method selector */
+
+.detector-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 220px;
+}
+
+.detector-control label {
+  color: #aebbd0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.detector-control select {
+  width: 100%;
+  padding: 11px 14px;
+  background: #111c2f;
+  color: #edf3ff;
+  border: 1px solid #2a3b55;
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.detector-control select:focus {
+  outline: 2px solid #5d91ff;
+  outline-offset: 2px;
+}
+
+.detector-description {
+  font-size: 11px;
+  color: #8393aa;
+}

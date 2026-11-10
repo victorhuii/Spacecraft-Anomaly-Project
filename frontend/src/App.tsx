@@ -35,17 +35,25 @@ type InferenceResponse = {
 
 const PAGE_SIZE = 300;
 
+type DetectionMethod = "rolling" | "multi" | "lstm";
+
 export default function App() {
   const [models, setModels] = useState<string[]>([]);
+
+  const [selectedChannel, setSelectedChannel] = useState("A-2");
+  const [channels, setChannels] = useState<string[]>([]);
+
   const [selectedModel, setSelectedModel] = useState("A-2_h1_cmd");
   const [start, setStart] = useState(4300);
   const [data, setData] = useState<InferenceResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const channel = selectedModel.split("_h")[0];
-  const channels = [...new Set(models.map((m) => m.split("_h")[0]))].sort();
-  const availableModels = models.filter((m) => m.startsWith(`${channel}_h`));
+  const channel = selectedChannel;
+
+  const availableModels = models.filter((model) =>
+    model.startsWith(`${channel}_h`),
+  );
 
   const [playing, setPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
@@ -55,6 +63,9 @@ export default function App() {
   const [labeledIntervals, setLabeledIntervals] = useState<AnomalyInterval[]>(
     [],
   );
+
+  const [detectionMethod, setDetectionMethod] =
+    useState<DetectionMethod>("rolling");
 
   // Load available checkpoints
   useEffect(() => {
@@ -79,49 +90,90 @@ export default function App() {
     return () => controller.abort();
   }, []);
 
-  // Fetch model predictions when selection changes
+  // Load all available NASA channels
   useEffect(() => {
-    if (!selectedModel) return;
+    const controller = new AbortController();
 
-    const match = selectedModel.match(/^(.+)_h(\d+)(_cmd)?$/);
-    if (!match) return;
+    fetch("/api/channels", { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Cannot load available channels");
+        }
+        return response.json();
+      })
+      .then((result: { channels: string[] }) => {
+        if (!controller.signal.aborted) {
+          setChannels(result.channels);
+        }
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setError(error.message);
+        }
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  // Fetch predictions from the selected detection method
+  useEffect(() => {
+    if (!channel) return;
 
     const controller = new AbortController();
 
     const params = new URLSearchParams({
-      horizon: match[2],
-      use_commands: String(Boolean(match[3])),
       start: String(start),
       limit: String(PAGE_SIZE),
     });
 
+    let url: string;
+
+    if (detectionMethod === "lstm") {
+      const match = selectedModel.match(/^(.+)_h(\d+)(_cmd)?$/);
+
+      if (!match || match[1] !== channel) return;
+
+      params.set("horizon", match[2]);
+      params.set("use_commands", String(Boolean(match[3])));
+
+      url = `/api/inference/${encodeURIComponent(channel)}?${params}`;
+    } else {
+      params.set("method", detectionMethod);
+
+      url = `/api/statistical/${encodeURIComponent(channel)}?${params}`;
+    }
+
     setLoading(true);
     setError("");
     setData(null);
+    setPlaying(false);
 
-    fetch(`/api/inference/${channel}?${params}`, {
-      signal: controller.signal,
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(`Inference failed (${res.status})`);
-        return res.json();
+    fetch(url, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Detection request failed (${response.status})`);
+        }
+        return response.json();
       })
-
       .then((result: InferenceResponse) => {
-        setData(result);
-        setCursorIndex(result.points.length - 1);
-        setPlaying(false);
-      })
+        if (controller.signal.aborted) return;
 
-      .catch((err) => {
-        if (!controller.signal.aborted) setError(err.message);
+        setData(result);
+        setCursorIndex(Math.max(0, result.points.length - 1));
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setError(error.message);
+        }
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       });
 
     return () => controller.abort();
-  }, [selectedModel, start, channel]);
+  }, [selectedModel, channel, start, detectionMethod]);
 
   useEffect(() => {
     if (!channel) return;
@@ -152,9 +204,20 @@ export default function App() {
   }, [channel]);
 
   function changeChannel(next: string) {
-    const choices = models.filter((m) => m.startsWith(`${next}_h`));
-    const preferred = choices.find((m) => m === `${next}_h1_cmd`);
-    setSelectedModel(preferred ?? choices[0] ?? "");
+    setSelectedChannel(next);
+
+    const choices = models.filter((model) => model.startsWith(`${next}_h`));
+
+    if (choices.length > 0) {
+      const preferred = choices.find((model) => model === `${next}_h1_cmd`);
+
+      setSelectedModel(preferred ?? choices[0]);
+    } else if (detectionMethod === "lstm") {
+      // Channels without checkpoints use the statistical baseline
+      setDetectionMethod("rolling");
+    }
+
+    setPlaying(false);
     setStart(next === "A-2" ? 4300 : 0);
   }
 
@@ -262,8 +325,11 @@ export default function App() {
             models={models}
             selectedModel={selectedModel}
             onSelectModel={(model) => {
+              const nextChannel = model.split("_h")[0];
+
               setSelectedModel(model);
-              setStart(model.startsWith("A-2_") ? 4300 : 0);
+              setSelectedChannel(nextChannel);
+              setStart(nextChannel === "A-2" ? 4300 : 0);
             }}
           />
         )}
@@ -286,19 +352,50 @@ export default function App() {
                 </select>
               </div>
 
-              <div className="control-group">
-                <label htmlFor="model">Detection model</label>
+              {detectionMethod === "lstm" && (
+                <div className="control-group">
+                  <label htmlFor="model">LSTM Checkpoint</label>
+
+                  <select
+                    id="model"
+                    value={selectedModel}
+                    onChange={(event) => setSelectedModel(event.target.value)}
+                  >
+                    {availableModels.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="detector-control">
+                <label htmlFor="detection-method">Detection Method</label>
+
                 <select
-                  id="model"
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
+                  id="detection-method"
+                  value={detectionMethod}
+                  onChange={(event) =>
+                    setDetectionMethod(event.target.value as DetectionMethod)
+                  }
                 >
-                  {availableModels.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
+                  <option value="rolling">Rolling Std (Default)</option>
+                  <option value="multi">Multi-Scale (Experimental)</option>
+
+                  <option value="lstm" disabled={availableModels.length === 0}>
+                    LSTM Forecasting
+                    {availableModels.length === 0 ? " (No checkpoint)" : ""}
+                  </option>
                 </select>
+
+                <span className="detector-description">
+                  {detectionMethod === "rolling"
+                    ? "30-step statistical baseline"
+                    : detectionMethod === "multi"
+                      ? "15 / 30 / 60-step voting detector"
+                      : "Trained neural forecasting model"}
+                </span>
               </div>
 
               <div className="control-note">
@@ -322,15 +419,23 @@ export default function App() {
                 <div className="kpi-value alert-color">{alerts.length}</div>
                 <div className="kpi-foot">Model-generated alerts</div>
               </div>
+              
               <div className="kpi">
-                <div className="kpi-label">DETECTION THRESHOLD</div>
+                <div className="kpi-label">SCORE CUTOFF</div>
+
                 <div className="kpi-value">
                   {data ? data.threshold.toFixed(4) : "—"}
                 </div>
+
                 <div className="kpi-foot">
-                  Calibrated on normal validation data
+                  {detectionMethod === 'rolling'
+                    ? 'Zero is the transformed score boundary'
+                    : detectionMethod === 'multi'
+                      ? 'Two or more votes trigger detection'
+                      : 'Calibrated on normal validation data'}
                 </div>
               </div>
+              
               <div className="kpi">
                 <div className="kpi-label">TOTAL PREDICTIONS</div>
                 <div className="kpi-value">
@@ -459,7 +564,7 @@ export default function App() {
                           axisLine={false}
                         />
                         <YAxis
-                          domain={[-1.1, 1.1]}
+                          domain={["auto", "auto"]}
                           stroke="#8291a6"
                           tickLine={false}
                           axisLine={false}
@@ -514,10 +619,26 @@ export default function App() {
                     <div>
                       <h2>Anomaly Detection Scores</h2>
                       <p>
+                        {detectionMethod === "rolling"
+                          ? "Rolling variance margin relative to the detection threshold"
+                          : detectionMethod === "multi"
+                            ? "Number of statistical detectors voting for an anomaly"
+                            : "LSTM forecasting error compared against its threshold"}
+                      </p>
+
+                      <p>
                         Forecast error compared against the calibrated threshold
                       </p>
                     </div>
-                    <span className="chart-legend">● Prediction error</span>
+
+                    <span className="chart-legend">
+                      ●{" "}
+                      {detectionMethod === "rolling"
+                        ? "Variance margin"
+                        : detectionMethod === "multi"
+                          ? "Anomaly votes"
+                          : "Prediction error"}
+                    </span>
                   </div>
 
                   <div className="chart-wrap">
@@ -540,6 +661,7 @@ export default function App() {
                           axisLine={false}
                         />
                         <YAxis
+                          domain={["auto", "auto"]}
                           stroke="#8291a6"
                           tickLine={false}
                           axisLine={false}
@@ -550,6 +672,7 @@ export default function App() {
                           y={data.threshold}
                           stroke="#ffb454"
                           strokeDasharray="5 5"
+                          ifOverflow="extendDomain"
                         />
 
                         {labeledIntervals

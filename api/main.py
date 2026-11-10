@@ -1,19 +1,16 @@
 
 import numpy as np
 import torch
-
 from src.data import load_channel
-from src.detection import forecast_errors
+from src.detection import forecast_errors, multi_scale_detect
 from src.models import LSTMForecaster
-
-
 from pathlib import Path
-
 import pandas as pd
 from fastapi import FastAPI, HTTPException
-
 from functools import lru_cache
 import ast
+import re
+
 
 app = FastAPI(
     title="MissionGuard API",
@@ -266,3 +263,166 @@ def get_anomaly_labels(channel: str):
             for start, end in intervals
         ]
     }
+
+
+@lru_cache(maxsize=8)
+def cached_statistical(channel: str, method: str):
+    """Calculate and cache historical statistical detections."""
+
+    train_df = load_channel(root, channel, split="train")
+    test_df = load_channel(root, channel, split="test")
+
+    train_values = train_df["value"].to_numpy(dtype=float)
+    test_values = test_df["value"].to_numpy(dtype=float)
+
+    split = int(len(train_values) * 0.8)
+    calibration = train_values[split:]
+
+    if len(calibration) < 60 or len(test_values) <= 100:
+        raise ValueError("Insufficient telemetry for detection")
+
+    test_series = pd.Series(test_values)
+
+    if method == "rolling":
+        normal_std = pd.Series(calibration).rolling(
+            30, min_periods=30
+        ).std()
+
+        threshold = float(
+            normal_std.dropna().quantile(0.01)
+        )
+
+        test_std = test_series.rolling(
+            30, min_periods=30
+        ).std()
+
+        predictions = (
+            test_std < threshold
+        ).fillna(False).to_numpy(dtype=bool)
+
+        # Larger score means lower variation
+        scores = (
+            threshold - test_std
+        ).fillna(0).to_numpy(dtype=float)
+
+        chart_threshold = 0.0
+        model_name = "Rolling Std"
+
+    else:
+        predictions, thresholds = multi_scale_detect(
+            calibration,
+            test_values,
+            windows=(15, 30, 60),
+            quantile=0.01,
+            required_votes=2
+        )
+
+        votes = np.zeros(len(test_values), dtype=int)
+
+        for window, threshold in thresholds.items():
+            if threshold is None:
+                continue
+
+            test_std = test_series.rolling(
+                window, min_periods=window
+            ).std()
+
+            votes += (
+                test_std < threshold
+            ).fillna(False).to_numpy(dtype=int)
+
+        scores = votes.astype(float)
+
+        # Two or more votes means anomaly
+        chart_threshold = 1.5
+        model_name = "Multi-Scale"
+
+    # Align statistical inference with one-step LSTM inference
+    # Both now begin displaying predictions at timestep 100
+    warmup = 100
+
+    if "timestep" in test_df.columns:
+        timesteps = test_df["timestep"].to_numpy()
+    else:
+        timesteps = np.arange(len(test_values))
+
+    points = [
+        {
+            "timestep": int(timesteps[i]),
+            "value": float(test_values[i]),
+            "anomaly_score": float(scores[i]),
+            "is_anomaly": bool(predictions[i])
+        }
+        for i in range(warmup, len(test_values))
+    ]
+
+    return {
+        "channel": channel,
+        "model": model_name,
+        "threshold": chart_threshold,
+        "total_predictions": len(points),
+        "points": points
+    }
+
+
+@app.get("/statistical/{channel}")
+def get_statistical(
+    channel: str,
+    method: str = "rolling",
+    start: int = 0,
+    limit: int = 300
+):
+    """Paginated statistical anomaly detection."""
+
+    if not re.fullmatch(r"[A-Z]-\d+", channel):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid channel"
+        )
+
+    if method not in ("rolling", "multi"):
+        raise HTTPException(
+            status_code=400,
+            detail="Method must be rolling or multi"
+        )
+
+    if start < 0 or not 1 <= limit <= 1000:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid pagination"
+        )
+
+    try:
+        result = cached_statistical(channel, method)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="Channel data not found"
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc)
+        )
+
+    return {
+        **result,
+        "points": result["points"][start:start + limit]
+    }
+
+
+@app.get("/channels")
+def get_channels():
+    """List channels with both training and test telemetry."""
+
+    train_dir = root / "data/raw/data/train"
+    test_dir = root / "data/raw/data/test"
+
+    channels = sorted(
+        path.stem
+        for path in test_dir.glob("*.parquet")
+        if (train_dir / path.name).is_file()
+    )
+
+    return {"channels": channels}
+

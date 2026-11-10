@@ -4,6 +4,7 @@ import pandas as pd
 import torch
 
 from src.models import LSTMForecaster
+from src.holdout import build_label_mask
 
 
 from src.detection import (
@@ -140,3 +141,26 @@ def test_zero_threshold_handling():
 
     # Output must still match the input length
     assert predictions.shape == (100,)
+
+
+def test_holdout_label_alignment():
+    labels = build_label_mask(
+        "[[2, 4], [7, 8]]",
+        length=10
+    )
+
+    expected = np.array([
+        False, False, True, True, True,
+        False, False, True, True, False
+    ])
+
+    assert np.array_equal(labels, expected)
+
+
+def test_holdout_rejects_invalid_intervals():
+    try:
+        build_label_mask("[[8, 12]]", length=10)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Invalid interval was accepted")
